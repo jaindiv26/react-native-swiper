@@ -140,6 +140,9 @@ export default class extends Component {
     activeDotStyle: PropTypes.oneOfType([PropTypes.object, PropTypes.number]),
     dotColor: PropTypes.string,
     activeDotColor: PropTypes.string,
+    showAdjacentViews: PropTypes.bool,
+    adjacentViewsWidth: PropTypes.number,
+    adjacentViewsPadding: PropTypes.number,
     /**
      * Called when the index has changed because the user swiped.
      */
@@ -169,6 +172,9 @@ export default class extends Component {
     autoplay: false,
     autoplayTimeout: 2.5,
     autoplayDirection: true,
+    showAdjacentViews: false,
+    adjacentViewsWidth: 8,
+    adjacentViewsPadding: 4,
     index: 0,
     onIndexChanged: () => null
   }
@@ -235,12 +241,15 @@ export default class extends Component {
 
     initState.dir = props.horizontal === false ? 'y' : 'x'
 
+    const adjacentViewDiffWidth = this.props.showAdjacentViews ?
+      this.props.adjacentViewsPadding + this.props.adjacentViewsWidth : 0
+
     if (props.width) {
       initState.width = props.width
     } else if (this.state && this.state.width){
       initState.width = this.state.width
     } else {
-      initState.width = width;
+      initState.width = width -  (2 * adjacentViewDiffWidth)
     }
 
     if (props.height) {
@@ -253,12 +262,14 @@ export default class extends Component {
 
     initState.offset[initState.dir] = initState.dir === 'y'
       ? height * props.index
-      : width * props.index
+      : (width * (props.index + this.props.showAdjacentViews && this.props.loop ? 1 : 0))
+        - (3 * adjacentViewDiffWidth)
 
 
     this.internals = {
       ...this.internals,
-      isScrolling: false
+      isScrolling: false,
+      adjacentViewDiffWidth: adjacentViewDiffWidth
     };
     return initState
   }
@@ -270,8 +281,8 @@ export default class extends Component {
 
   onLayout = (event) => {
     const { width, height } = event.nativeEvent.layout
-    const offset = this.internals.offset = {}
-    const state = { width, height }
+    const offset = this.internals.offset = {x: 0, y:0}
+    const state = { width: width - (2 * this.internals.adjacentViewDiffWidth), height }
 
     if (this.state.total > 1) {
       let setup = this.state.index
@@ -280,7 +291,7 @@ export default class extends Component {
       }
       offset[this.state.dir] = this.state.dir === 'y'
         ? height * setup
-        : width * setup
+        : (width * setup) - (3 * this.internals.adjacentViewDiffWidth)
     }
 
     // only update the offset in state if needed, updating offset while swiping
@@ -327,7 +338,6 @@ export default class extends Component {
             : this.state.index === 0
         )
       ) return this.setState({ autoplayEnd: true })
-
       this.scrollBy(this.props.autoplayDirection ? 1 : -1)
     }, this.props.autoplayTimeout * 1000)
   }
@@ -349,7 +359,6 @@ export default class extends Component {
   onScrollEnd = e => {
     // update scroll state
     this.internals.isScrolling = false
-
     // making our events coming from android compatible to updateIndex logic
     if (!e.nativeEvent.contentOffset) {
       if (this.state.dir === 'x') {
@@ -357,6 +366,9 @@ export default class extends Component {
       } else {
         e.nativeEvent.contentOffset = {y: e.nativeEvent.position * this.state.height}
       }
+    }
+    if (this.props.showAdjacentViews && this.state.dir === 'x') {
+      e.nativeEvent.contentOffset.x = e.nativeEvent.contentOffset.x - (3 * this.internals.adjacentViewDiffWidth)
     }
 
     this.updateIndex(e.nativeEvent.contentOffset, this.state.dir, () => {
@@ -384,6 +396,7 @@ export default class extends Component {
       (index === 0 || index === children.length - 1)) {
       this.internals.isScrolling = false
     }
+
   }
 
   /**
@@ -392,6 +405,7 @@ export default class extends Component {
    * @param  {string} dir    'x' || 'y'
    */
   updateIndex = (offset, dir, cb) => {
+
     const state = this.state
     let index = state.index
     if (!this.internals.offset)   // Android not setting this onLayout first? https://github.com/leecade/react-native-swiper/issues/582
@@ -399,7 +413,6 @@ export default class extends Component {
     const diff = offset[dir] - this.internals.offset[dir]
     const step = dir === 'x' ? state.width : state.height
     let loopJump = false
-
     // Do nothing if offset no change.
     if (!diff) return
 
@@ -407,7 +420,6 @@ export default class extends Component {
     // the variation of `index` more than 1.
     // parseInt() ensures it's always an integer
     index = parseInt(index + Math.round(diff / step))
-
     if (this.props.loop) {
       if (index <= -1) {
         index = state.total - 1
@@ -460,7 +472,7 @@ export default class extends Component {
     const diff = (this.props.loop ? 1 : 0) + index + this.state.index
     let x = 0
     let y = 0
-    if (state.dir === 'x') x = diff * state.width
+    if (state.dir === 'x') x = (diff * state.width) - this.internals.adjacentViewDiffWidth
     if (state.dir === 'y') y = diff * state.height
 
     if (Platform.OS !== 'ios') {
@@ -639,10 +651,12 @@ export default class extends Component {
           {...this.props}
           {...this.scrollViewPropOverrides()}
           contentContainerStyle={[styles.wrapperIOS, this.props.style]}
-          contentOffset={this.state.offset}
           onScrollBeginDrag={this.onScrollBegin}
           onMomentumScrollEnd={this.onScrollEnd}
           onScrollEndDrag={this.onScrollEndDrag}
+          snapToInterval={this.state.width}
+          snapToAlignment={'center'}
+          decelerationRate={0}
           style={this.props.scrollViewStyle}>
           {pages}
         </ScrollView>
@@ -674,6 +688,7 @@ export default class extends Component {
       width,
       height
     } = this.state;
+
     const {
       children,
       containerStyle,
